@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>From Train to Deploy: Model Export Workflow</title>
+    
+    <!-- Tailwind CSS for rapid, responsive UI development -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    <!-- Custom Styles and Component Definitions -->
+    <style>
+        /* * INSTRUCTOR'S NOTE: COLOR PALETTE
+         * You can easily change the site's theme by modifying these CSS variables.
+         * They are used throughout the stylesheet for consistent branding.
+         */
+        :root {
+            --bg-primary: #111827; /* bg-gray-900 */
+            --bg-secondary: #1f2937; /* bg-gray-800 */
+            --bg-tertiary: #374151; /* bg-gray-700 */
+            --border-color: #4b5563; /* bg-gray-600 */
+            --text-primary: #f9fafb; /* text-gray-50 */
+            --text-secondary: #d1d5db; /* text-gray-300 */
+            --accent-primary: #3b82f6; /* blue-500 */
+            --accent-secondary: #2563eb; /* blue-600 */
+            --success-color: #22c55e; /* green-500 */
+            --error-color: #ef4444; /* red-500 */
+            --shield-secure: #22c55e; /* green-500 */
+            --shield-insecure: #f97316; /* orange-500 */
+            --shield-default: #6b7280; /* gray-500 */
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif; /* Assumes Inter font is available, common in modern browsers */
+        }
+
+        /* Custom transition for smooth sliding panels */
+        .slide-in-panel {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s ease-in-out;
+            opacity: 0;
+        }
+
+        .slide-in-panel.active {
+            max-height: 1000px; /* Large enough to not clip content */
+            opacity: 1;
+        }
+
+        /* Progress bar styling */
+        .timeline-progress {
+            transition: width 0.4s ease-in-out;
+        }
+
+        /* Drag-and-drop zone styling */
+        .drop-zone.drag-over {
+            border-color: var(--accent-primary);
+            background-color: var(--bg-tertiary);
+        }
+        
+        /* Shield icon transition */
+        #shield-icon {
+            transition: color 0.3s ease-in-out;
+        }
+
+        /* Pop-up tip styling and animation */
+        .popup-tip {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-white">From Train to Deploy</h1>
+            <p class="text-lg text-gray-300 mt-2">An Interactive Guide to the Model Export Workflow</p>
+        </header>
+
+        <!-- Source Selector -->
+        <section class="mb-8 bg-gray-800 p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-white">1. Select Your Training Source</h2>
+            <div id="source-selector" class="flex flex-wrap gap-4" role="radiogroup" aria-labelledby="source-selector-heading">
+                <!-- INSTRUCTOR'S NOTE: Radio buttons control which code snippets are shown. -->
+                <div class="flex items-center">
+                    <input type="radio" id="source-bqml" name="source" value="bqml" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500" checked>
+                    <label for="source-bqml" class="ml-2 block text-sm font-medium text-gray-300">BigQuery ML</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="radio" id="source-vertex" name="source" value="vertex" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
+                    <label for="source-vertex" class="ml-2 block text-sm font-medium text-gray-300">Vertex AI Training Job</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="radio" id="source-jupyter" name="source" value="jupyter" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
+                    <label for="source-jupyter" class="ml-2 block text-sm font-medium text-gray-300">Local Jupyter / Python</label>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content Grid -->
+        <main class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+            
+            <!-- Left Column: Timeline -->
+            <div class="lg:col-span-3">
+                <section class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-semibold mb-6 text-white">2. Follow the Export Workflow</h2>
+                    
+                    <!-- Timeline Progress Bar -->
+                    <div class="w-full bg-gray-700 rounded-full h-2.5 mb-6">
+                        <div id="timeline-progress" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%;"></div>
+                    </div>
+                    
+                    <!-- Clickable Steps -->
+                    <div id="timeline-steps" class="space-y-4">
+                        <!-- Step 1: Train -->
+                        <div class="step-container">
+                            <button class="step-button w-full text-left p-4 bg-gray-700 rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" data-step="1" aria-expanded="false" aria-controls="step-content-1">
+                                <span class="font-bold">Step 1:</span> Train Model
+                            </button>
+                            <div id="step-content-1" class="slide-in-panel mt-2 bg-gray-900 rounded-lg p-4" role="region">
+                                <p class="text-gray-300 mb-4">The initial step is training your model using your chosen source. The code for this varies significantly based on the platform.</p>
+                                <div class="code-container"></div>
+                            </div>
+                        </div>
+                        <!-- Step 2: Export/Save -->
+                        <div class="step-container">
+                            <button class="step-button w-full text-left p-4 bg-gray-700 rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" data-step="2" aria-expanded="false" aria-controls="step-content-2">
+                                <span class="font-bold">Step 2:</span> Export / Save Model
+                            </button>
+                            <div id="step-content-2" class="slide-in-panel mt-2 bg-gray-900 rounded-lg p-4" role="region">
+                                <p class="text-gray-300 mb-4">After training, the model must be saved to a standard format like TensorFlow SavedModel or ONNX.</p>
+                                <div class="code-container"></div>
+                            </div>
+                        </div>
+                        <!-- Step 3: Upload to Storage -->
+                        <div class="step-container">
+                            <button class="step-button w-full text-left p-4 bg-gray-700 rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" data-step="3" aria-expanded="false" aria-controls="step-content-3">
+                                <span class="font-bold">Step 3:</span> Upload to Cloud Storage
+                            </button>
+                            <div id="step-content-3" class="slide-in-panel mt-2 bg-gray-900 rounded-lg p-4" role="region">
+                                <p class="text-gray-300 mb-4">The exported artifact is uploaded to a durable storage service, like Google Cloud Storage, to be accessible for deployment.</p>
+                                <div class="code-container"></div>
+                            </div>
+                        </div>
+                        <!-- Step 4: Register Model -->
+                        <div class="step-container">
+                            <button class="step-button w-full text-left p-4 bg-gray-700 rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" data-step="4" aria-expanded="false" aria-controls="step-content-4">
+                                <span class="font-bold">Step 4:</span> Register in Model Registry
+                            </button>
+                            <div id="step-content-4" class="slide-in-panel mt-2 bg-gray-900 rounded-lg p-4" role="region">
+                                <p class="text-gray-300 mb-4">Registering the model in a service like Vertex AI Model Registry provides versioning, metadata, and governance.</p>
+                                <div class="code-container"></div>
+                            </div>
+                        </div>
+                        <!-- Step 5: Deploy Endpoint -->
+                        <div class="step-container">
+                            <button class="step-button w-full text-left p-4 bg-gray-700 rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" data-step="5" aria-expanded="false" aria-controls="step-content-5">
+                                <span class="font-bold">Step 5:</span> Deploy to an Endpoint
+                            </button>
+                            <div id="step-content-5" class="slide-in-panel mt-2 bg-gray-900 rounded-lg p-4" role="region">
+                                <p class="text-gray-300 mb-4">The final step is deploying the registered model to a scalable, online prediction endpoint.</p>
+                                <div class="code-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Column: Inspector, Calculator, Security -->
+            <div class="lg:col-span-2 space-y-8">
+                
+                <!-- Artifact Inspector -->
+                <section class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-semibold mb-4 text-white">3. Artifact Inspector</h2>
+                    <div id="drop-zone" class="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition-colors" aria-label="Drag and drop a .zip or .onnx file here">
+                        <p class="text-gray-400">Drag & Drop a <code class="bg-gray-700 px-1 rounded">.zip</code> or <code class="bg-gray-700 px-1 rounded">.onnx</code> file here</p>
+                    </div>
+                    <div id="inspector-results" class="mt-4 hidden">
+                        <h3 class="font-semibold text-lg mb-2">File Contents:</h3>
+                        <ul id="file-list" class="space-y-2 text-sm"></ul>
+                    </div>
+                </section>
+
+                <!-- Cost Calculator -->
+                <section class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-semibold mb-4 text-white">4. Cost Calculator</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="artifact-size" class="block text-sm font-medium text-gray-300">Artifact Size (MB)</label>
+                            <input type="number" id="artifact-size" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-white" value="500">
+                        </div>
+                        <div>
+                            <label for="storage-class" class="block text-sm font-medium text-gray-300">Storage Class</label>
+                            <select id="storage-class" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-white">
+                                <option value="standard" data-price="0.020">Standard</option>
+                                <option value="nearline" data-price="0.010">Nearline</option>
+                                <option value="coldline" data-price="0.004">Coldline</option>
+                                <option value="archive" data-price="0.0012">Archive</option>
+                            </select>
+                        </div>
+                        <div class="pt-4 border-t border-gray-700">
+                            <p class="text-gray-400">Est. Monthly Storage Cost:</p>
+                            <p id="storage-cost" class="text-2xl font-bold text-green-400">$0.00</p>
+                            <p class="text-gray-400 mt-2">Est. One-Time Egress (1TB):</p>
+                            <p id="egress-cost" class="text-2xl font-bold text-green-400">$0.00</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Security Checklist -->
+                <section class="bg-gray-800 p-6 rounded-lg shadow-lg relative">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h2 class="text-xl font-semibold mb-4 text-white">5. Security Checklist</h2>
+                            <div class="space-y-3">
+                                <!-- Checksum Toggle -->
+                                <label for="toggle-checksum" class="flex items-center cursor-pointer">
+                                    <div class="relative">
+                                        <input type="checkbox" id="toggle-checksum" class="sr-only security-toggle" data-tip="checksum-tip">
+                                        <div class="block bg-gray-600 w-14 h-8 rounded-full"></div>
+                                        <div class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition"></div>
+                                    </div>
+                                    <div class="ml-3 text-gray-300">Verify Checksum</div>
+                                </label>
+                                <!-- KMS Toggle -->
+                                <label for="toggle-kms" class="flex items-center cursor-pointer">
+                                    <div class="relative">
+                                        <input type="checkbox" id="toggle-kms" class="sr-only security-toggle" data-tip="kms-tip">
+                                        <div class="block bg-gray-600 w-14 h-8 rounded-full"></div>
+                                        <div class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition"></div>
+                                    </div>
+                                    <div class="ml-3 text-gray-300">Use CMEK Encryption</div>
+                                </label>
+                                <!-- Private Bucket Toggle -->
+                                <label for="toggle-private" class="flex items-center cursor-pointer">
+                                    <div class="relative">
+                                        <input type="checkbox" id="toggle-private" class="sr-only security-toggle" data-tip="private-tip" checked>
+                                        <div class="block bg-gray-600 w-14 h-8 rounded-full"></div>
+                                        <div class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition"></div>
+                                    </div>
+                                    <div class="ml-3 text-gray-300">Use Private Bucket</div>
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Shield Icon -->
+                        <div class="text-center">
+                            <svg id="shield-icon" xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 1.944A11.954 11.954 0 012.166 5.002L2.5 14.25a1 1 0 001.223.972l.995-.25a1 1 0 01.995.25l.995.25a1 1 0 00.995-.25l.995-.25a1 1 0 01.995.25l.995.25a1 1 0 00.995-.25l.995-.25a1 1 0 01.995.25l.25.063a1 1 0 001.223-.972L17.834 5.002A11.954 11.954 0 0110 1.944zM8.5 12.5a.5.5 0 01.707 0L10.5 13.793l1.293-1.293a.5.5 0 11.707.707L11.207 14.5l1.293 1.293a.5.5 0 01-.707.707L10.5 15.207l-1.293 1.293a.5.5 0 01-.707-.707L9.793 14.5l-1.293-1.293a.5.5 0 010-.707z" clip-rule="evenodd" />
+                            </svg>
+                            <span id="shield-status" class="text-sm font-semibold"></span>
+                        </div>
+                    </div>
+                    <!-- Pop-up Tips -->
+                    <div id="checksum-tip" class="popup-tip absolute bottom-full mb-2 w-full left-0 bg-blue-900 text-blue-100 p-4 rounded-lg shadow-xl opacity-0 transform translate-y-2 pointer-events-none">
+                        <button class="close-tip absolute top-2 right-2 text-blue-200 hover:text-white">&times;</button>
+                        <strong>Checksum Verification:</strong> After uploading, calculate the file's hash (e.g., MD5, SHA256) and compare it with the source file's hash to ensure data integrity and prevent corruption during transfer.
+                    </div>
+                    <div id="kms-tip" class="popup-tip absolute bottom-full mb-2 w-full left-0 bg-blue-900 text-blue-100 p-4 rounded-lg shadow-xl opacity-0 transform translate-y-2 pointer-events-none">
+                        <button class="close-tip absolute top-2 right-2 text-blue-200 hover:text-white">&times;</button>
+                        <strong>Customer-Managed Encryption Keys (CMEK):</strong> Use your own encryption keys in Cloud KMS to encrypt the model artifact in the storage bucket. This gives you full control over the key lifecycle and access.
+                    </div>
+                    <div id="private-tip" class="popup-tip absolute bottom-full mb-2 w-full left-0 bg-blue-900 text-blue-100 p-4 rounded-lg shadow-xl opacity-0 transform translate-y-2 pointer-events-none">
+                        <button class="close-tip absolute top-2 right-2 text-blue-200 hover:text-white">&times;</button>
+                        <strong>Private Storage Bucket:</strong> Ensure your Cloud Storage bucket is not public. Use fine-grained IAM permissions or service account access to grant only the necessary services (like Vertex AI) read access to the model.
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // --- CONFIGURATION & DATA --- //
+        
+        /* * INSTRUCTOR'S NOTE: CODE SNIPPETS
+         * This object holds all the code snippets for the timeline. 
+         * You can easily update or add new code here.
+         * The keys (bqml, vertex, jupyter) match the radio button values.
+         * The inner keys (1-5) match the step numbers.
+         */
+        const codeSnippets = {
+            bqml: {
+                1: { lang: 'sql', code: `CREATE OR REPLACE MODEL \`my_project.my_dataset.my_model\`
+OPTIONS(model_type='linear_reg', input_label_cols=['label']) AS
+SELECT feature1, feature2, label FROM \`my_project.my_dataset.training_data\`;` },
+                2: { lang: 'sql', code: `EXPORT MODEL \`my_project.my_dataset.my_model\`
+OPTIONS(uri='gs://your-bucket-name/bqml-exported-model');` },
+                3: { lang: 'bash', code: `# This step is handled automatically by the EXPORT MODEL command.
+# The model is saved directly to the specified GCS URI.` },
+                4: { lang: 'bash', code: `gcloud ai models upload \\
+  --region=us-central1 \\
+  --display-name=my-bqml-model \\
+  --container-image-uri=us-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-8:latest \\
+  --artifact-uri=gs://your-bucket-name/bqml-exported-model/` },
+                5: { lang: 'bash', code: `gcloud ai endpoints deploy-model ENDPOINT_ID \\
+  --region=us-central1 \\
+  --model=MODEL_ID \\
+  --display-name=my-bqml-model-deployment \\
+  --machine-type=n1-standard-2` },
+            },
+            vertex: {
+                1: { lang: 'python', code: `from google.cloud import aiplatform
+
+aiplatform.init(project='my-project', location='us-central1')
+
+job = aiplatform.CustomTrainingJob(
+    display_name='my-training-job',
+    script_path='train.py',
+    container_uri='us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-8:latest',
+)
+job.run()` },
+                2: { lang: 'python', code: `# In your train.py script
+import tensorflow as tf
+# ... (model training) ...
+model.save(os.environ["AIP_MODEL_DIR"]) # Vertex provides the path` },
+                3: { lang: 'bash', code: `# This step is handled automatically by the Vertex AI Training Job.
+# The job saves the model to a GCS path you specify.` },
+                4: { lang: 'python', code: `from google.cloud import aiplatform
+
+# Assumes the training job saved the model to this location
+model_uri = "gs://your-bucket/vertex-job-output/model"
+
+model = aiplatform.Model.upload(
+    display_name="my-vertex-job-model",
+    artifact_uri=model_uri,
+    serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-8:latest"
+)` },
+                5: { lang: 'python', code: `from google.cloud import aiplatform
+
+endpoint = aiplatform.Endpoint.create(display_name="my-endpoint")
+
+endpoint.deploy(
+    model=model,
+    deployed_model_display_name="my-model-deployment",
+    machine_type="n1-standard-2"
+)` },
+            },
+            jupyter: {
+                1: { lang: 'python', code: `import tensorflow as tf
+# ... (build and compile your model) ...
+model.fit(x_train, y_train, epochs=5)` },
+                2: { lang: 'python', code: `model.save('my-local-model/1') # Save in SavedModel format` },
+                3: { lang: 'bash', code: `# First, zip the model directory
+zip -r my-local-model.zip my-local-model
+
+# Then, upload using gsutil
+gsutil cp my-local-model.zip gs://your-bucket-name/` },
+                4: { lang: 'bash', code: `gcloud ai models upload \\
+  --region=us-central1 \\
+  --display-name=my-local-model \\
+  --container-image-uri=us-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-8:latest \\
+  --artifact-uri=gs://your-bucket-name/my-local-model/` },
+                5: { lang: 'bash', code: `gcloud ai endpoints deploy-model ENDPOINT_ID \\
+  --region=us-central1 \\
+  --model=MODEL_ID \\
+  --display-name=my-local-model-deployment \\
+  --machine-type=n1-standard-2` },
+            }
+        };
+
+        /*
+         * INSTRUCTOR'S NOTE: COST FORMULAS
+         * These are simplified mock formulas. Update them to reflect current pricing.
+         * - storagePrice: Price per GB per month. Here it's per MB for easier calculation.
+         * - egressPrice: Price per GB for egress to internet. Here it's for 1TB (1,000,000 MB).
+         */
+        const costFormulas = {
+            egressPricePerMb: 0.12, // Mock price for egress per MB ($120/TB)
+        };
+
+
+        // --- ELEMENT SELECTORS --- //
+        const sourceSelector = document.getElementById('source-selector');
+        const timelineSteps = document.getElementById('timeline-steps');
+        const timelineProgress = document.getElementById('timeline-progress');
+        const dropZone = document.getElementById('drop-zone');
+        const inspectorResults = document.getElementById('inspector-results');
+        const fileList = document.getElementById('file-list');
+        const artifactSizeInput = document.getElementById('artifact-size');
+        const storageClassSelect = document.getElementById('storage-class');
+        const storageCostEl = document.getElementById('storage-cost');
+        const egressCostEl = document.getElementById('egress-cost');
+        const securityToggles = document.querySelectorAll('.security-toggle');
+        const shieldIcon = document.getElementById('shield-icon');
+        const shieldStatus = document.getElementById('shield-status');
+
+        let activeStep = 0;
+        let activeTip = null;
+
+        // --- FUNCTIONS --- //
+
+        /**
+         * Updates the code snippets in the timeline based on the selected source.
+         */
+        const updateCodeSnippets = () => {
+            const selectedSource = document.querySelector('input[name="source"]:checked').value;
+            const sourceData = codeSnippets[selectedSource];
+
+            document.querySelectorAll('.code-container').forEach((container, index) => {
+                const step = index + 1;
+                const snippet = sourceData[step];
+                
+                const codeBlock = `
+                    <div class="relative">
+                        <pre class="language-${snippet.lang} rounded-md"><code>${Prism.highlight(snippet.code, Prism.languages[snippet.lang], snippet.lang)}</code></pre>
+                        <button class="copy-button absolute top-2 right-2 bg-gray-600 hover:bg-blue-600 text-white px-2 py-1 rounded-md text-xs">Copy</button>
+                    </div>`;
+                container.innerHTML = codeBlock;
+            });
+        };
+
+        /**
+         * Handles clicking on a timeline step button.
+         * @param {Event} e - The click event.
+         */
+        const handleStepClick = (e) => {
+            const button = e.target.closest('.step-button');
+            if (!button) return;
+
+            const step = parseInt(button.dataset.step);
+            const content = document.getElementById(`step-content-${step}`);
+            const isOpening = !content.classList.contains('active');
+
+            // Close all other steps
+            document.querySelectorAll('.slide-in-panel.active').forEach(panel => {
+                if (panel.id !== content.id) {
+                    panel.classList.remove('active');
+                    panel.previousElementSibling.setAttribute('aria-expanded', 'false');
+                }
+            });
+
+            // Toggle the clicked step
+            content.classList.toggle('active');
+            button.setAttribute('aria-expanded', isOpening.toString());
+            
+            activeStep = isOpening ? step : 0;
+            updateProgressBar();
+        };
+
+        /**
+         * Updates the visual progress bar based on the active step.
+         */
+        const updateProgressBar = () => {
+            const totalSteps = 5;
+            // Progress is based on completing the *previous* step.
+            // So for step 3, we show progress for 2/5 steps completed.
+            const progressPercentage = activeStep > 0 ? ((activeStep -1) / (totalSteps -1)) * 100 : 0;
+            timelineProgress.style.width = `${progressPercentage}%`;
+        };
+        
+        /**
+         * Handles copying code to the clipboard.
+         * @param {Event} e - The click event.
+         */
+        const handleCopyClick = (e) => {
+            if (!e.target.classList.contains('copy-button')) return;
+            
+            const pre = e.target.previousElementSibling;
+            const code = pre.querySelector('code').innerText;
+            
+            // Use a temporary textarea to copy text
+            const textArea = document.createElement('textarea');
+            textArea.value = code;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                e.target.textContent = 'Copied!';
+                setTimeout(() => { e.target.textContent = 'Copy'; }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                e.target.textContent = 'Error';
+            }
+            document.body.removeChild(textArea);
+        };
+
+        /**
+         * Mock parser for dropped files.
+         * @param {File} file - The file dropped by the user.
+         */
+        const inspectFile = (file) => {
+            inspectorResults.classList.remove('hidden');
+            fileList.innerHTML = ''; // Clear previous results
+
+            const addFileEntry = (name, isValid) => {
+                const li = document.createElement('li');
+                li.className = 'flex items-center justify-between bg-gray-700 p-2 rounded';
+                const icon = isValid 
+                    ? `<svg class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`
+                    : `<svg class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+                
+                li.innerHTML = `<span>${name}</span>${icon}`;
+                fileList.appendChild(li);
+            };
+
+            if (file.name.endsWith('.zip')) {
+                // Mock contents of a TensorFlow SavedModel zip
+                addFileEntry('saved_model.pb', true);
+                addFileEntry('variables/variables.data-00000-of-00001', true);
+                addFileEntry('variables/variables.index', true);
+                addFileEntry('assets/', true);
+            } else if (file.name.endsWith('.onnx')) {
+                // Mock validation for an ONNX file
+                addFileEntry(file.name, true);
+                addFileEntry('Metadata: opset_version=13', true);
+            } else {
+                addFileEntry('Unsupported file type', false);
+            }
+        };
+
+        /**
+         * Animates a number counter from a start to an end value.
+         * @param {HTMLElement} el - The element to update.
+         * @param {number} endValue - The final value.
+         * @param {string} prefix - A prefix for the value (e.g., '$').
+         */
+        const animateCounter = (el, endValue, prefix = '$') => {
+            const duration = 750; // ms
+            const startValue = parseFloat(el.textContent.replace(prefix, '')) || 0;
+            if (startValue === endValue) return;
+
+            let startTime = null;
+            const step = (timestamp) => {
+                if (!startTime) startTime = timestamp;
+                const progress = Math.min((timestamp - startTime) / duration, 1);
+                const currentValue = progress * (endValue - startValue) + startValue;
+                el.textContent = `${prefix}${currentValue.toFixed(2)}`;
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
+        };
+
+        /**
+         * Calculates and updates the storage and egress cost display.
+         */
+        const updateCosts = () => {
+            const sizeMb = parseFloat(artifactSizeInput.value) || 0;
+            const selectedOption = storageClassSelect.options[storageClassSelect.selectedIndex];
+            const pricePerGb = parseFloat(selectedOption.dataset.price);
+            
+            // INSTRUCTOR'S NOTE: This is where the cost logic lives.
+            const sizeGb = sizeMb / 1024;
+            const storageCost = sizeGb * pricePerGb;
+            const egressCost = sizeMb * costFormulas.egressPricePerMb;
+
+            animateCounter(storageCostEl, storageCost);
+            animateCounter(egressCostEl, egressCost, '$');
+        };
+        
+        /**
+         * Updates the security shield icon and status text based on toggle states.
+         */
+        const updateSecurityShield = () => {
+            const toggles = Array.from(securityToggles);
+            const checkedCount = toggles.filter(t => t.checked).length;
+            
+            // Update color
+            if (checkedCount === toggles.length) {
+                shieldIcon.style.color = 'var(--shield-secure)';
+                shieldStatus.textContent = 'Secure';
+                shieldStatus.style.color = 'var(--shield-secure)';
+            } else if (checkedCount > 0) {
+                shieldIcon.style.color = 'var(--shield-insecure)';
+                shieldStatus.textContent = 'Partial';
+                shieldStatus.style.color = 'var(--shield-insecure)';
+            } else {
+                shieldIcon.style.color = 'var(--shield-default)';
+                shieldStatus.textContent = 'Default';
+                shieldStatus.style.color = 'var(--shield-default)';
+            }
+            
+            // Update toggle styles
+            toggles.forEach(toggle => {
+                const dot = toggle.nextElementSibling.nextElementSibling;
+                if (toggle.checked) {
+                    toggle.nextElementSibling.classList.add('bg-blue-600');
+                    dot.style.transform = 'translateX(1.5rem)';
+                } else {
+                    toggle.nextElementSibling.classList.remove('bg-blue-600');
+                    dot.style.transform = 'translateX(0)';
+                }
+            });
+        };
+
+        /**
+         * Shows a pop-up tip associated with a security toggle.
+         * @param {string} tipId - The ID of the tip element to show.
+         */
+        const showTip = (tipId) => {
+            if (activeTip) {
+                activeTip.classList.add('opacity-0', 'translate-y-2', 'pointer-events-none');
+            }
+            const tip = document.getElementById(tipId);
+            if (tip) {
+                activeTip = tip;
+                tip.classList.remove('opacity-0', 'translate-y-2', 'pointer-events-none');
+            }
+        };
+        
+        /**
+         * Hides the currently active pop-up tip.
+         */
+        const hideActiveTip = () => {
+             if (activeTip) {
+                activeTip.classList.add('opacity-0', 'translate-y-2', 'pointer-events-none');
+                activeTip = null;
+            }
+        };
+
+
+        // --- EVENT LISTENERS --- //
+
+        // Source Selector
+        sourceSelector.addEventListener('change', updateCodeSnippets);
+
+        // Timeline Steps
+        timelineSteps.addEventListener('click', handleStepClick);
+        timelineSteps.addEventListener('click', handleCopyClick);
+
+        // Drag and Drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                inspectFile(file);
+            }
+        });
+        
+        // Cost Calculator
+        artifactSizeInput.addEventListener('input', updateCosts);
+        storageClassSelect.addEventListener('change', updateCosts);
+        
+        // Security Checklist
+        securityToggles.forEach(toggle => {
+            toggle.addEventListener('change', () => {
+                updateSecurityShield();
+                if (toggle.checked) {
+                    showTip(toggle.dataset.tip);
+                } else if (activeTip && activeTip.id === toggle.dataset.tip) {
+                    hideActiveTip();
+                }
+            });
+        });
+
+        // Close pop-up tips
+        document.querySelectorAll('.close-tip').forEach(button => {
+            button.addEventListener('click', hideActiveTip);
+        });
+
+
+        // --- INITIALIZATION --- //
+        updateCodeSnippets();
+        updateCosts();
+        updateSecurityShield();
+    });
+    </script>
+</body>
+</html>
